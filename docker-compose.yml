@@ -1,0 +1,34 @@
+services:
+  # PostgreSQL: Stores users, folder structures, and file metadata
+  db:
+    image: postgres:15-alpine
+    container_name: dropbox_db
+    environment:
+      POSTGRES_USER: dropbox_user
+      POSTGRES_PASSWORD: secretpassword
+      POSTGRES_DB: dropbox_clone
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # MinIO: Stores the actual physical files
+  minio:
+    image: minio/minio:latest
+    container_name: dropbox_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000" # S3 API Port (Your Flask app talks to this)
+      - "9001:9001" # Web UI Console Port (You look at this)
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+
+# Named volumes so your data survives when containers restart
+volumes:
+  pgdata:
+  miniodata:
