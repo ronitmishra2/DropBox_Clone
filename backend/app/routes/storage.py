@@ -125,3 +125,25 @@ def download_file(current_user, file_id):
         
     except Exception as e:
         return jsonify({'error': 'Failed to generate download link', 'details': str(e)}), 500
+    # --- DELETE ROUTE ---
+@storage_bp.route('/files/<int:file_id>', methods=['DELETE'])
+@token_required
+def delete_file(current_user, file_id):
+    # 1. Find the file and ensure the current user owns it
+    file_record = File.query.filter_by(id=file_id, user_id=current_user.id).first()
+    
+    if not file_record:
+        return jsonify({'error': 'File not found or unauthorized'}), 404
+        
+    try:
+        # 2. Delete the physical file from MinIO
+        minio_client.remove_object("dropbox-files", file_record.minio_object_name)
+        
+        # 3. Delete the metadata record from PostgreSQL
+        db.session.delete(file_record)
+        db.session.commit()
+        
+        return jsonify({'message': 'File deleted successfully'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': 'Failed to delete file', 'details': str(e)}), 500
