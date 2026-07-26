@@ -1,290 +1,167 @@
 # ☁️ Dropbox Clone
 
-> A cloud-native full-stack file management application inspired by enterprise cloud storage systems like Dropbox. This project demonstrates scalable cloud architecture by separating relational metadata from object storage while implementing secure authentication and efficient file delivery.
+> A full-stack, cloud-native file storage application inspired by Dropbox, built with React, Flask, PostgreSQL, MinIO, and Docker.
 
-![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python)
-![Flask](https://img.shields.io/badge/Flask-Backend-black?logo=flask)
-![React](https://img.shields.io/badge/React-Frontend-61DAFB?logo=react)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-336791?logo=postgresql)
-![MinIO](https://img.shields.io/badge/MinIO-S3%20Storage-red)
-![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?logo=docker)
-![JWT](https://img.shields.io/badge/Auth-JWT-success)
-
----
-
-# 📖 Overview
-
-Dropbox Clone is a **cloud-native file storage application** that replicates the architecture used by modern cloud storage providers.
-
-Instead of storing uploaded files directly inside a relational database, the application follows an **enterprise-grade decoupled storage architecture**, where:
-
-- **PostgreSQL** stores users, folders, and metadata.
-- **MinIO (S3-compatible Object Storage)** stores the actual binary file objects.
-- **Flask API** acts as the secure control plane.
-- **React** provides a responsive frontend.
-
-This architecture improves scalability, maintainability, and storage performance.
+![GitHub](https://img.shields.io/badge/React-Frontend-blue?logo=react)
+![GitHub](https://img.shields.io/badge/Flask-Backend-black?logo=flask)
+![GitHub](https://img.shields.io/badge/PostgreSQL-Database-blue?logo=postgresql)
+![GitHub](https://img.shields.io/badge/MinIO-Object%20Storage-red)
+![GitHub](https://img.shields.io/badge/Docker-Containerized-2496ED?logo=docker)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
-# 🏗️ Architecture
+## 📖 Overview
 
-```
-                   +--------------------+
-                   |     React Client   |
-                   +---------+----------+
-                             |
-                       HTTP + JWT
-                             |
-                             ▼
-                  +---------------------+
-                  |    Flask Backend    |
-                  | Authentication API  |
-                  | File Metadata API   |
-                  +----+-----------+----+
-                       |           |
-              SQLAlchemy           |
-                       |           |
-                       ▼           ▼
-            PostgreSQL DB      MinIO (S3)
-        Metadata & Users      Physical Files
-```
+Dropbox Clone is a **cloud-native file management application** that recreates the core functionality of modern cloud storage platforms like Dropbox.
+
+The application allows users to create accounts, organize files within an **infinite nested folder hierarchy**, securely upload and download files, and store physical objects separately from metadata using an enterprise-style architecture.
+
+Rather than storing uploaded files directly in the backend, the application follows a **decoupled storage architecture**:
+
+- **PostgreSQL** stores metadata (users, folders, file information)
+- **MinIO (S3-compatible object storage)** stores physical files
+- **Flask API** manages authentication and metadata
+- **React** provides a responsive user interface
+
+This architecture closely resembles how production cloud storage platforms are designed.
 
 ---
 
 # ✨ Features
 
-## 🔐 Secure Authentication
+### 🔐 Secure Authentication
 
-- User Registration
-- User Login
-- JWT Authentication
-- Password hashing using **bcrypt**
+- JWT-based stateless authentication
+- Secure password hashing with bcrypt
+- Protected API routes
+- User-specific file access
 
 ---
 
-## ☁️ Cloud Storage
+### 📁 Infinite Folder Hierarchy
+
+Organize files exactly like a desktop file explorer.
+
+Features include:
+
+- Create folders
+- Delete folders
+- Navigate between folders
+- Unlimited nested folders
+- Self-referential PostgreSQL relationships
+
+---
+
+### 📄 File Operations
+
+Users can:
 
 - Upload files
-- View uploaded files
 - Download files
-- User-specific storage
+- Delete files
+- Store metadata separately from physical file data
 
 ---
 
-## 📂 Metadata Management
+### 🛡️ Zero-Trust File Downloads
 
-PostgreSQL stores:
+Instead of downloading files through the backend server:
 
-- User information
-- Folder hierarchy
-- Original filename
-- File size
-- Upload timestamps
-- UUID object names
-
----
-
-## 📦 Object Storage
-
-MinIO stores:
-
-- Actual binary files
-- UUID-based filenames
-- S3-compatible objects
-
----
-
-## 🚀 High Performance Downloads
-
-Downloads do **not** pass through Flask.
-
-Instead:
-
-1. Client requests download
-2. Flask validates JWT
-3. Flask generates a **Presigned URL**
-4. Client downloads directly from MinIO
+1. Backend authenticates the user.
+2. Backend generates a **temporary MinIO Presigned URL**.
+3. Frontend downloads the file directly from object storage.
 
 Benefits:
 
-- Reduced backend bandwidth
-- Faster downloads
 - Better scalability
+- Reduced backend load
 - Secure temporary access
+- Industry-standard architecture
 
 ---
 
-## 🛡️ Zero-Trust Security
+# 🏗️ System Architecture
 
-Every storage endpoint is protected using:
-
-- JWT Bearer Tokens
-- Custom authentication middleware
-- Password hashing (bcrypt)
-
-Only authenticated users can access their own files.
+```
+                 React Frontend
+                        │
+                        │ REST API
+                        ▼
+                 Flask Backend API
+                        │
+         ┌──────────────┴──────────────┐
+         ▼                             ▼
+ PostgreSQL                     MinIO Object Storage
+(File Metadata)                 (Physical Files)
+```
 
 ---
 
-# 🚀 Cloud Architecture Highlights
-
-## ✅ Decoupled Storage Architecture
-
-Instead of saving files inside PostgreSQL:
-
-```
-React
-   │
-   ▼
-Flask API
-   │
-   ├────────► PostgreSQL
-   │           Metadata
-   │
-   └────────► MinIO
-               Binary Files
-```
-
-Advantages:
-
-- Highly scalable
-- Easy backups
-- Faster database queries
-- Enterprise architecture
-
----
-
-## ✅ Zero-Collision Uploads
-
-When a user uploads:
-
-```
-resume.pdf
-```
-
-The backend stores it as:
-
-```
-8a41c39d-7d64-4bd4-b5c9-f97bcaf52c70.pdf
-```
-
-while PostgreSQL still remembers:
-
-```
-resume.pdf
-```
-
-This prevents filename collisions between users.
-
----
-
-## ✅ Direct Downloads using Presigned URLs
-
-Instead of:
-
-```
-Client
-   │
-Flask
-   │
-MinIO
-```
-
-the architecture becomes:
-
-```
-Client
-   │
-Flask
-   │
-Presigned URL
-   │
-   ▼
-MinIO
-```
-
-Advantages:
-
-- Less server load
-- Better performance
-- Secure temporary download links
-
----
-
-# 🛠️ Tech Stack
+# ⚙️ Tech Stack
 
 | Layer | Technology |
-|---------|------------|
-| Frontend | React (Vite/CRA) |
+|--------|------------|
+| Frontend | React + Vite |
 | HTTP Client | Axios |
-| Backend | Flask |
+| Backend | Python + Flask |
 | ORM | SQLAlchemy |
 | Authentication | JWT |
-| Password Security | bcrypt |
 | Database | PostgreSQL |
-| Object Storage | MinIO |
-| Infrastructure | Docker |
-| Container Orchestration | Docker Compose |
+| Object Storage | MinIO (AWS S3 Compatible) |
+| Containerization | Docker & Docker Compose |
 
 ---
 
-# 📁 Project Structure
+# 📷 Screenshots
 
-```
-Dropbox-Clone/
-│
-├── frontend/
-│   ├── src/
-│   ├── public/
-│   └── package.json
-│
-├── backend/
-│   ├── app/
-│   ├── routes/
-│   ├── models/
-│   ├── services/
-│   ├── run.py
-│   ├── requirements.txt
-│   └── .env
-│
-├── docker-compose.yml
-│
-└── README.md
-```
+## 🏠 Main Dashboard
+
+![Main Dashboard](images/01.png)
 
 ---
 
-# ⚙️ Installation
+## 📂 Folder Navigation
 
-## 1️⃣ Clone Repository
-
-```bash
-git clone <repository-url>
-cd Dropbox-Clone
-```
+![Folder Navigation](images/02.png)
 
 ---
 
-## 2️⃣ Start Infrastructure
+## 🗄️ MinIO Object Storage
 
-Start PostgreSQL and MinIO:
+![MinIO Object Storage](images/03.png)
+
+---
+
+# 🚀 Getting Started
+
+## Prerequisites
+
+Make sure the following software is installed:
+
+- Docker Desktop
+- Python 3.x
+- Node.js
+- npm
+
+---
+
+# 🐳 Step 1 — Start Infrastructure
+
+Start PostgreSQL and MinIO using Docker Compose.
 
 ```bash
 docker compose up -d
 ```
 
-Services started:
+This starts:
 
-| Service | Port |
-|----------|------|
-| PostgreSQL | 5432 |
-| MinIO API | 9000 |
-| MinIO Console | 9001 |
+- PostgreSQL
+- MinIO Object Storage
 
 ---
 
-## 3️⃣ Configure MinIO
+# 🪣 Step 2 — Configure MinIO
 
 Open:
 
@@ -292,7 +169,7 @@ Open:
 http://localhost:9001
 ```
 
-Login:
+Login using:
 
 ```
 Username:
@@ -302,224 +179,209 @@ Password:
 minioadmin123
 ```
 
-Create a bucket named:
+After logging in:
+
+- Create a new bucket named
 
 ```
 dropbox-files
 ```
 
----
-
-## 4️⃣ Backend Environment Variables
-
-Create:
-
-```
-backend/.env
-```
-
-```env
-FLASK_APP=run.py
-FLASK_DEBUG=1
-
-SECRET_KEY=super-secret-jwt-key-change-this-in-production
-
-DATABASE_URL=postgresql://dropbox_user:secretpassword@localhost:5432/dropbox_clone
-
-MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin123
-MINIO_SECURE=False
-```
+This bucket will store all uploaded files.
 
 ---
 
-## 5️⃣ Install Backend
+# 🐍 Step 3 — Start the Flask Backend
+
+Navigate to the backend directory:
 
 ```bash
 cd backend
 ```
 
-Install dependencies
+Create a virtual environment:
+
+```bash
+python -m venv venv
+```
+
+Activate the virtual environment.
+
+### Windows
+
+```bash
+venv\Scripts\activate
+```
+
+### Linux / macOS
+
+```bash
+source venv/bin/activate
+```
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Start server
+Run the backend:
 
 ```bash
 python run.py
 ```
 
-The backend automatically creates all PostgreSQL tables during startup.
-
 ---
 
-## 6️⃣ Start Frontend
+# ⚛️ Step 4 — Start the React Frontend
+
+Open another terminal.
+
+Navigate to the frontend:
 
 ```bash
 cd frontend
+```
+
+Install dependencies:
+
+```bash
 npm install
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-or (CRA)
+The frontend will be available at:
 
-```bash
-npm start
+```
+http://localhost:5173
 ```
 
 ---
 
-# 🔑 Authentication
-
-Include the JWT in every protected request.
+# 📂 Project Structure
 
 ```
-Authorization: Bearer YOUR_JWT_TOKEN
-```
-
----
-
-# 📡 REST API
-
-## 🔐 Authentication APIs
-
-Base URL
-
-```
-/api/auth
-```
-
-| Method | Endpoint | Description |
-|---------|----------|-------------|
-| POST | `/register` | Register a new user |
-| POST | `/login` | Login and receive JWT |
-
----
-
-## ☁️ Storage APIs
-
-Base URL
-
-```
-/api/storage
-```
-
-**Requires JWT Authentication**
-
-| Method | Endpoint | Description |
-|---------|----------|-------------|
-| GET | `/files` | List all files belonging to the authenticated user |
-| POST | `/upload` | Upload a file using multipart/form-data |
-| GET | `/download/<file_id>` | Returns a secure MinIO Presigned URL |
-
----
-
-# 🔄 Upload Workflow
-
-```
-User
- │
- ▼
-Select File
- │
- ▼
-React Upload
- │
- ▼
-Flask API
- │
- ├────────────► Generate UUID
- │
- ├────────────► Upload to MinIO
- │
- └────────────► Save Metadata
-                in PostgreSQL
+Dropbox-Clone/
+│
+├── backend/
+│   ├── app/
+│   ├── models/
+│   ├── routes/
+│   ├── services/
+│   ├── requirements.txt
+│   └── run.py
+│
+├── frontend/
+│   ├── src/
+│   ├── public/
+│   ├── package.json
+│   └── vite.config.js
+│
+├── images/
+│   ├── 01.png
+│   ├── 02.png
+│   └── 03.png
+│
+├── docker-compose.yml
+└── README.md
 ```
 
 ---
 
-# 📥 Download Workflow
+# 🔒 Security Highlights
 
-```
-User
- │
- ▼
-Request Download
- │
- ▼
-Flask validates JWT
- │
- ▼
-Generate Presigned URL
- │
- ▼
-Client Downloads
-Directly From MinIO
-```
+- JWT stateless authentication
+- Password hashing with bcrypt
+- User-specific authorization
+- Presigned URL downloads
+- Backend never exposes object storage credentials
+- Secure separation of metadata and file storage
 
 ---
 
-# 🔒 Security Features
+# 💡 Design Principles
 
-- JWT Authentication
-- Protected API Routes
-- bcrypt Password Hashing
-- UUID Object Names
-- User Isolation
-- Secure Presigned URLs
-- Zero-Trust API Design
+This project follows modern cloud application practices:
 
----
-
-# 📈 Scalability Benefits
-
-✔ Decoupled storage architecture
-
-✔ Horizontal backend scaling
-
-✔ Faster database queries
-
-✔ Secure object storage
-
-✔ Efficient large file handling
-
-✔ Reduced backend bandwidth
-
-✔ Enterprise-inspired cloud design
+- Separation of metadata and object storage
+- Stateless backend architecture
+- Self-referential relational database design
+- Containerized development environment
+- AWS S3-compatible storage abstraction
+- Secure direct object downloads using presigned URLs
 
 ---
 
 # 🎯 Future Improvements
 
-- Folder sharing
-- Role-Based Access Control (RBAC)
-- File versioning
+- File sharing via public links
 - Drag-and-drop uploads
-- Search functionality
 - File previews
-- Multi-part uploads
-- AWS S3 deployment
-- Kubernetes deployment
-- CI/CD with GitHub Actions
+- Folder sharing
+- Search functionality
+- Version history
+- Multi-file uploads
+- User storage quotas
+- Responsive mobile interface
+- Deployment on AWS
 
 ---
 
-# 👨‍💻 Author
+# 🤝 Contributing
+
+Contributions are welcome!
+
+If you'd like to improve this project:
+
+1. Fork the repository
+2. Create a feature branch
+
+```bash
+git checkout -b feature/amazing-feature
+```
+
+3. Commit your changes
+
+```bash
+git commit -m "Add amazing feature"
+```
+
+4. Push your branch
+
+```bash
+git push origin feature/amazing-feature
+```
+
+5. Open a Pull Request
+
+---
+
+# ⭐ Support
+
+If you found this project helpful:
+
+- ⭐ Star the repository
+- 🍴 Fork it
+- 🛠️ Contribute
+- 🐞 Report issues
+
+---
+
+# 📜 License
+
+This project is licensed under the MIT License.
+
+---
+
+## 👨‍💻 Author
 
 **Ronit Mishra**
 
-- 💼 Cloud Computing Enthusiast
-- 🐍 Python Developer
-- ☁️ Cloud & DevOps Learner
-- 🚀 Passionate about building scalable backend systems
+Cloud Computing Enthusiast • Full-Stack Developer • DevOps Learner
 
----
-
-# ⭐ If you found this project useful
-
-Give the repository a ⭐ on GitHub!
-
-It helps others discover the project and motivates future improvements.
+If you enjoyed this project, consider giving it a ⭐ on GitHub!
