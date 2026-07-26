@@ -1,149 +1,151 @@
 import uuid
-import jwt
-from functools import wraps
-from flask import Blueprint, request, jsonify, current_app
-from app.models import db, File, User
 from datetime import timedelta
+from flask import Blueprint, request, jsonify
+from app import db, minio_client
+from app.models import File, Folder
+from app.routes.auth import token_required  # Assuming your token_required decorator is in auth.py
 
-# Import the minio_client we initialized in __init__.py
-from app import minio_client 
+# 1. Define the Blueprint (This is what was missing!)
+storage_bp = Blueprint('storage', __name__)
 
-storage_bp = Blueprint('storage', __name__, url_prefix='/api/storage')
+# --- FILE ROUTES ---
 
-# --- SECURITY MIDDLEWARE ---
-def token_required(f):
-    """Checks if the user sent a valid JWT token in the Authorization header."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        
-        if not token:
-            return jsonify({'error': 'Token is missing!'}), 401
-        
-        try:
-            # Token usually comes in as "Bearer <actual_token>"
-            token = token.split(" ")[1] 
-            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
-            current_user = User.query.get(data['user_id'])
-        except Exception as e:
-            return jsonify({'error': 'Token is invalid or expired!'}), 401
-            
-        # Pass the current_user to the route being protected
-        return f(current_user, *args, **kwargs)
-    return decorated
-
-
-# --- UPLOAD ROUTE ---
 @storage_bp.route('/upload', methods=['POST'])
 @token_required
 def upload_file(current_user):
     if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
+        return jsonify({'error': 'No file part'}), 400
         
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
+        return jsonify({'error': 'No selected file'}), 400
+
+    # Grab the folder_id from the frontend request
+    folder_id = request.form.get('folder_id')
+    
+    # Clean up the folder_id 
+    if not folder_id or folder_id == 'null':
+        folder_id = None
+    else:
+        folder_id = int(folder_id)
+
+    try:
+        # Generate a unique name for MinIO to prevent collisions
+        unique_filename = str(uuid.uuid4())
         
-    # 1. Generate a unique name for MinIO to prevent name collisions
-    file_extension = file.filename.split('.')[-1]
-    minio_object_name = f"{uuid.uuid4().hex}.{file_extension}"
-    
-    # Calculate file size
-    file_bytes = file.read()
-    size = len(file_bytes)
-    file.seek(0) # Reset file pointer back to the start so MinIO can read it
-    
-    # 2. Upload the actual bytes to MinIO
-    minio_client.put_object(
-        "dropbox-files",
-        minio_object_name,
-        file,
-        size
-    )
-    
-    # 3. Save the friendly metadata to PostgreSQL
-    new_file = File(
-        name=file.filename,
-        minio_object_name=minio_object_name,
-        size=size,
-        user_id=current_user.id
-        # Note: folder_id is NULL here, so it goes to the user's root directory
-    )
-    db.session.add(new_file)
-    db.session.commit()
-    
-    return jsonify({
-        'message': 'File uploaded successfully', 
-        'filename': file.filename
-    }), 201
+        # Read the file size
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0, 0)
 
-# --- LIST FILES ROUTE ---
-@storage_bp.route('/files', methods=['GET'])
-@token_required
-def list_files(current_user):
-    # Fetch all files belonging to the logged-in user
-    files = File.query.filter_by(user_id=current_user.id).all()
-    
-    file_list = []
-    for f in files:
-        file_list.append({
-            'id': f.id,
-            'name': f.name,
-            'size': f.size,
-            'created_at': f.created_at.isoformat()
-        })
+        # Upload the physical file to MinIO
+        minio_client.put_object(
+            "dropbox-files",
+            unique_filename,
+            file,
+            length=file_size,
+            content_type=file.content_type
+        )
+
+        # Save the metadata to PostgreSQL
+        new_file = File(
+            name=file.filename,
+            size=file_size,
+            minio_object_name=unique_filename,
+            user_id=current_user.id,
+            folder_id=folder_id
+        )
         
-    return jsonify({'files': file_list}), 200
+        db.session.add(new_file)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'File uploaded successfully', 
+            'file': {'id': new_file.id, 'name': new_file.name}
+        }), 201
+
+    except Exception as e:
+        return jsonify({'error': 'Failed to upload file', 'details': str(e)}), 500
 
 
-# --- DOWNLOAD ROUTE ---
 @storage_bp.route('/download/<int:file_id>', methods=['GET'])
 @token_required
 def download_file(current_user, file_id):
-    # 1. Find the file in Postgres AND verify this user owns it
-    file_record = File.query.filter_by(id=file_id, user_id=current_user.id).first()
-    
-    if not file_record:
-        return jsonify({'error': 'File not found or unauthorized'}), 404
-        
-    # 2. Ask MinIO for a temporary, secure download link
+    file = File.query.filter_by(id=file_id, user_id=current_user.id).first()
+    if not file:
+        return jsonify({'error': 'File not found'}), 404
+
     try:
-        url = minio_client.presigned_get_object(
-            bucket_name="dropbox-files",
-            object_name=file_record.minio_object_name,
-            expires=timedelta(hours=1), # Link expires in 1 hour
-            response_headers={
-                'response-content-disposition': f'attachment; filename="{file_record.name}"'
-            }
+        # Generate Presigned URL
+        url = minio_client.get_presigned_url(
+            "GET",
+            "dropbox-files",
+            file.minio_object_name,
+            expires=timedelta(hours=1)
         )
-        
-        return jsonify({
-            'message': 'Download link generated successfully',
-            'download_url': url,
-            'file_name': file_record.name
-        }), 200
-        
+        return jsonify({'download_url': url, 'file_name': file.name}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to generate download link', 'details': str(e)}), 500
-    # --- DELETE ROUTE ---
+
+
 @storage_bp.route('/files/<int:file_id>', methods=['DELETE'])
 @token_required
 def delete_file(current_user, file_id):
-    # 1. Find the file and ensure the current user owns it
-    file_record = File.query.filter_by(id=file_id, user_id=current_user.id).first()
-    
-    if not file_record:
-        return jsonify({'error': 'File not found or unauthorized'}), 404
-        
+    file = File.query.filter_by(id=file_id, user_id=current_user.id).first()
+    if not file:
+        return jsonify({'error': 'File not found'}), 404
+
     try:
-        # 2. Delete the physical file from MinIO
-        minio_client.remove_object("dropbox-files", file_record.minio_object_name)
+        # Delete from MinIO
+        minio_client.remove_object("dropbox-files", file.minio_object_name)
         
-        # 3. Delete the metadata record from PostgreSQL
-        db.session.delete(file_record)
+        # Delete from Database
+        db.session.delete(file)
         db.session.commit()
         
         return jsonify({'message': 'File deleted successfully'}), 200
-        
     except Exception as e:
         return jsonify({'error': 'Failed to delete file', 'details': str(e)}), 500
+
+
+# --- FOLDER ROUTES ---
+
+@storage_bp.route('/folders', methods=['POST'])
+@token_required
+def create_folder(current_user):
+    data = request.get_json()
+    folder_name = data.get('name')
+    parent_id = data.get('parent_id')
+
+    if not folder_name:
+        return jsonify({'error': 'Folder name is required'}), 400
+
+    new_folder = Folder(
+        name=folder_name,
+        user_id=current_user.id,
+        parent_id=parent_id
+    )
+
+    db.session.add(new_folder)
+    db.session.commit()
+
+    return jsonify({'message': 'Folder created successfully', 'folder': {'id': new_folder.id, 'name': new_folder.name}}), 201
+
+
+@storage_bp.route('/directory', methods=['GET'])
+@token_required
+def get_directory(current_user):
+    folder_id = request.args.get('folder_id', type=int)
+
+    # Fetch folders and files for this specific directory
+    folders = Folder.query.filter_by(user_id=current_user.id, parent_id=folder_id).all()
+    files = File.query.filter_by(user_id=current_user.id, folder_id=folder_id).all()
+
+    folder_list = [{'id': f.id, 'name': f.name} for f in folders]
+    file_list = [{'id': f.id, 'name': f.name, 'size': f.size} for f in files]
+
+    return jsonify({
+        'current_folder_id': folder_id,
+        'folders': folder_list,
+        'files': file_list
+    }), 200

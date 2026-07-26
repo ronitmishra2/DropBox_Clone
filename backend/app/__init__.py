@@ -1,55 +1,44 @@
 from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from minio import Minio
-from app.config import Config
-from app.models import db
+import os
 
-# We will initialize the MinIO client inside the factory function
-minio_client = None
+# 1. Initialize the db and minio_client objects here at the global level!
+db = SQLAlchemy()
+
+# Initialize MinIO client
+minio_client = Minio(
+    os.getenv('MINIO_ENDPOINT', 'localhost:9000'),
+    access_key=os.getenv('MINIO_ACCESS_KEY', 'minioadmin'),
+    secret_key=os.getenv('MINIO_SECRET_KEY', 'minioadmin123'),
+    secure=os.getenv('MINIO_SECURE', 'False').lower() in ('true', '1', 't')
+)
 
 def create_app():
     app = Flask(__name__)
-    app.config.from_object(Config)
     
-    # Allow the React frontend to communicate with this API
+    # Configuration
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://dropbox_user:secretpassword@localhost:5432/dropbox_clone')
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'super-secret-jwt-key')
+
+    # Initialize extensions
     CORS(app)
-    
-    # Initialize the Postgres Database
     db.init_app(app)
-    
-    # Initialize the MinIO Client globally
-    global minio_client
-    minio_client = Minio(
-        app.config['MINIO_ENDPOINT'],
-        access_key=app.config['MINIO_ACCESS_KEY'],
-        secret_key=app.config['MINIO_SECRET_KEY'],
-        secure=app.config['MINIO_SECURE']
-    )
-    
-    # THIS IS THE SECTION YOU ASKED ABOUT
+
+    # 2. IMPORT MODELS HERE (Inside the function, after db is initialized)
+    from .models import User, Folder, File
+
+    # 3. Create database tables
     with app.app_context():
-        # Import models so SQLAlchemy knows what tables to create
-        from app.models import User, Folder, File
-        
-        # Create all tables in Postgres if they don't exist yet
         db.create_all()
-        
-        # Ensure the MinIO bucket exists
-        bucket_name = "dropbox-files"
-        if not minio_client.bucket_exists(bucket_name):
-            minio_client.make_bucket(bucket_name)
-            print(f"Created MinIO bucket: {bucket_name}")
-            
-        # REGISTER ROUTES HERE
-        from app.routes.auth import auth_bp
-        app.register_blueprint(auth_bp)
-        
-        from app.routes.storage import storage_bp
-        app.register_blueprint(storage_bp)
-        
-    # Your health check route
-    @app.route('/')
-    def hello():
-        return {"status": "success", "message": "Dropbox clone backend is running!"}
-            
+
+    # 4. Register Blueprints
+    from .routes.auth import auth_bp
+    from .routes.storage import storage_bp
+    
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
+    app.register_blueprint(storage_bp, url_prefix='/api/storage')
+
     return app

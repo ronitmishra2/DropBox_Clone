@@ -1,11 +1,40 @@
 import bcrypt
 import jwt
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from flask import Blueprint, request, jsonify, current_app
 from app.models import db, User
 
 # Create a Blueprint for our auth routes
-auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+auth_bp = Blueprint('auth', __name__)
+
+# --- MIDDLEWARE ---
+# This is the missing function that protects our storage routes!
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        
+        # Check if the token is in the headers
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if len(auth_header.split(" ")) == 2:
+                token = auth_header.split(" ")[1]
+        
+        if not token:
+            return jsonify({'error': 'Token is missing!'}), 401
+            
+        try:
+            # Decode the token to get the user's ID
+            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user = User.query.filter_by(id=data['user_id']).first()
+        except Exception as e:
+            return jsonify({'error': 'Token is invalid!', 'details': str(e)}), 401
+            
+        return f(current_user, *args, **kwargs)
+    return decorated
+
+# --- ROUTES ---
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
